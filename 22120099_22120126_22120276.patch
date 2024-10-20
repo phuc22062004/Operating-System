@@ -274,115 +274,104 @@ index 0000000..2f571c8
 +}
 diff --git a/user/xargs.c b/user/xargs.c
 new file mode 100644
-index 0000000..0657095
+index 0000000..87fc2a6
 --- /dev/null
 +++ b/user/xargs.c
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,96 @@
 +#include "kernel/types.h"
-+#include "kernel/stat.h"
-+#include "user/user.h"
-+#include "kernel/fcntl.h"
 +#include "kernel/param.h"
++#include "user/user.h"
 +
-+#define MAXLINE 512
-+
-+int main(int argc, char *argv[])
-+{
-+    if (argc < 2)
-+    {
-+        fprintf(2, "Usage: xargs [-n num] command [args...]\n");
-+        exit(1);
++int main(int argc, char* argv[]) {
++    // Các tham số cơ bản khi không có -n
++    int argPerCommand = MAXARG;
++    int cmdStart = 1;
++    
++    // Xử lý trường hợp có tham số -n
++    if (strcmp(argv[1], "-n") == 0) {
++        argPerCommand = atoi(argv[2]);
++        cmdStart = 3;
 +    }
 +
-+    int maxargs = 1;
-+    int cmd_start = 1;
-+
-+    if (strcmp(argv[1], "-n") == 0)
-+    {
-+        if (argc < 4)
-+        {
-+            fprintf(2, "Usage: xargs [-n num] command [args...]\n");
-+            exit(1);
-+        }
-+        maxargs = atoi(argv[2]);
-+        cmd_start = 3;
-+    }
-+
-+    char buf[MAXLINE];
-+    char *newargv[MAXARG];
++    // Lưu các tham số đầu vào của xargs
++    char* args[MAXARG];
++    char buf[1024];
 +    int n = 0;
-+
-+    for (n = 0; n < argc - cmd_start; n++)
-+    {
-+        newargv[n] = argv[cmd_start + n];
++    while (n < argc - cmdStart) {
++        args[n] = argv[cmdStart + n];
++        n++;
 +    }
 +
-+    int argcount = n;
-+
-+    while (1)
-+    {
-+
++    // Thực hiện 1 lệnh
++    while (1) {
 +        int i = 0;
-+        int bytesRead = 0;
++        int status = 0;
 +
-+        while (i < MAXLINE)
-+        {
-+            bytesRead = read(0, &buf[i], 1);
-+            if (bytesRead < 1)
-+            {
++        // Đọc các tham số từ đầu vào chuẩn
++        while (1) {
++            status = read(0, &buf[i], 1);
++            if (status < 1) {
 +                break;
 +            }
-+            if (buf[i] == '\n')
-+            {
-+                buf[i] = 0;
-+                break;
-+            }
++            if (buf[i] == '\n') break;
 +            i++;
 +        }
++        
++        // Không còn dữ liệu đầu vào (EOF)
++        if (i == 0 && status < 1) break;
 +
-+        if (i == 0 && bytesRead < 1)
-+        {
-+            break;
++        // Xử lý với -n tham số cho mỗi lệnh
++        int argsIdx = n;
++        int startArgsIdx = 0;
++        int argsCount = 0;
++        int j = 0;
++        while (j <= i) {
++            // Tách các tham số từ đâu vào chuẩn
++            if (buf[j] == ' ' || buf[j] == '\n') {
++                buf[j] = 0;
++                args[argsIdx++] = &buf[startArgsIdx];
++                startArgsIdx = j + 1;
++                argsCount++;
++            }
++            // Đủ tham số theo -n thì thực hiện
++            if (argsCount == argPerCommand) {
++                args[argsIdx] = 0;
++                // Tạo ra tiến trình còn và thực hiện lệnh
++                if (fork() == 0) {
++                    exec(args[0], args);
++
++                    // Nếu lệnh exec fail
++                    fprintf(2, "exec %s failed\n", args[0]);
++                    exit(1);
++                }
++                else {
++                    wait(0);
++                }
++                argsIdx = n;
++                argsCount = 0;
++            }
++            j++;
 +        }
 +
-+        newargv[argcount++] = buf;
++        // Trường hợp còn thừa nhưng không đủ tham số của -n
++        if (argsCount != 0) {
++            args[argsIdx] = 0;
++            // Tạo ra tiến trình còn và thực hiện lệnh
++            if (fork() == 0) {
++                exec(args[0], args);
 +
-+        if (argcount - n >= maxargs || bytesRead < 1)
-+        {
-+            newargv[argcount] = 0;
-+
-+            if (fork() == 0)
-+            {
-+                exec(newargv[0], newargv);
-+                fprintf(2, "exec %s failed\n", newargv[0]);
++                // Nếu lệnh exec fail
++                fprintf(2, "exec %s failed\n", args[0]);
 +                exit(1);
 +            }
-+            else
-+            {
-+
++            else {
 +                wait(0);
 +            }
-+
-+            argcount = n;
++            argsIdx = n;
++            argsCount = 0;
 +        }
 +    }
-+
-+    if (argcount > n)
-+    {
-+        newargv[argcount] = 0;
-+
-+        if (fork() == 0)
-+        {
-+            exec(newargv[0], newargv);
-+            fprintf(2, "exec %s failed\n", newargv[0]);
-+            exit(1);
-+        }
-+        else
-+        {
-+
-+            wait(0);
-+        }
-+    }
-+
++    // Kết thúc tiến trình hoàn thành
 +    exit(0);
 +}
+\ No newline at end of file
